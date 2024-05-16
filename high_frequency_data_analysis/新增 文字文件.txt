@@ -1,0 +1,5 @@
+﻿主題：1. 降維 2.特徵間是獨立
+PCA - Principal Component Analysis
+限制 - 1. 數據要是連續型 2. 變數間要做normalization 3.不能有missing values
+
+分析脈絡：針對x、y的特質去選模型
