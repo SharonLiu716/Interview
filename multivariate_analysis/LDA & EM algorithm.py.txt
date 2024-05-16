@@ -1,0 +1,192 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Mar 21 10:46:11 2022
+
+@author: 懿萱
+"""
+
+
+import numpy as np
+import pandas as pd
+import scipy
+import math
+import seaborn as sns
+import matplotlib.pyplot as plt
+import scipy.stats as st
+from scipy.stats import randint
+import statistics as stats
+from scipy.special import gamma
+import statsmodels.api as sm
+from statistics import variance
+from numpy.linalg import inv              
+from scipy.stats import multivariate_normal
+
+path='C:\\Users\\cherl\\GitHub\\NCU\\多變量\\microtus.xlsx'
+df = pd.read_excel (path) 
+df=df[['Group','Rostrum']]
+#df.pivot(columns='Group', values='Rostrum').plot(kind='hist', subplots=True, rwidth=0.9, align='mid')
+df['index1']=np.where(df['Group']== 'multiplex', int(1), int(0))
+df['index2']=np.where(df['Group']== 'subterraneus', int(1), int(0))
+
+        
+
+group=df.groupby('Group')['Rostrum']
+Var,lenth=group.var().tolist(),group.count().tolist()
+pooled_var =((lenth[0] - 1)*Var[0] +(lenth[1]-1)*Var[1] )/(lenth[0]+lenth[1]-2)
+params=[group.mean().tolist()[0],group.mean().tolist()[1],pooled_var,np.round_(lenth[0]/(lenth[0]+lenth[1]),3)] #lis1 in E-step
+
+from scipy.special import logsumexp
+a = [np.arange(5),[*range(5,10)]]
+logsumexp(a, axis=0)
+np.log(sum(np.exp(a[0])))
+x=df['Rostrum']
+
+
+##Expectation step
+def Estep(D,lis1):
+    m1,m2,var,pi=lis1[0],lis1[1],lis1[2],lis1[3]
+    D0,D1=df[df['Group'] != 'unknown'],df[df['Group'] == 'unknown']
+    D0['w1']=np.where(D0['Group']== 'multiplex', int(1), int(0))
+    D0['w2']=np.where(D0['Group']== 'subterraneus', int(1), int(0))
+    #for classfied data D1
+
+    #for unclassfied data D2
+    pt2 = multivariate_normal.pdf(D1['Rostrum'], mean=m2, cov=var)
+    pt1 = multivariate_normal.pdf(D1['Rostrum'], mean=m1, cov=var)
+    w1 = pi * pt1 #w1
+    w2 = (1-pi) * pt2
+    D1['w1'] = w1/(w1+w2)
+    D1['w2'] = 1-( w1/(w1+w2))
+    D=pd.concat([D0,D1])
+    return D['w1'],D['w2']
+## Maximization step
+def Mstep(Y,w1,w2):
+    num_mu1,din_mu1,num_mu2,din_mu2=0,0,0,0
+    
+    for i in range(0,len(Y)):
+        num_mu2 += w2[i] * Y[i]
+        din_mu2 += w2[i]
+
+        num_mu1 += w1[i] * Y[i]
+        din_mu1 += w1[i]
+
+    mu1 = num_mu1/din_mu1
+    mu2 = num_mu2/din_mu2
+
+    num_s1,din_s1,num_s2,din_s2=0,0,0,0
+    for i in range(0,len(Y)):
+
+        q1 = np.matrix(Y[i]-mu1)
+        num_s1 += w1[i] * np.dot(q1.T, q1)
+        din_s1 += w1[i]
+
+        q2 = np.matrix(Y[i]-mu2)
+        num_s2 += w2[i] * np.dot(q2.T, q2)
+        din_s2 += w2[i]
+
+    s1 = num_s1/din_s1
+    s2 = num_s2/din_s2
+    s=(num_s1+ num_s2)/(din_s1+din_s2-2)
+    pi = sum(w1)/len(Y)
+    
+    lis2=[mu1,mu2,s,pi]
+    return  lis2
+iterations = 30
+
+for i in range(0,iterations):
+    e1,e2=Estep(df,params)
+    lis2 = Mstep(df['Rostrum'],e1,e2)
+    lis1=lis2
+
+
+#oringin
+alpha=np.log(params[3]/(1-params[3]))-0.5*(params[0]-params[1])*(params[0]+params[1])/params[2]
+beta=(params[0]-params[1])/params[2]
+sum(alpha+beta*df['Rostrum'])/288
+#Discrimix
+alpha_d=np.log(lis1[3]/(1-lis1[3]))-0.5*(lis1[0]-lis1[1])*(lis1[0]+lis1[1])/lis1[2]
+beta_d=(lis1[0]-lis1[1])/lis1[2]
+alpha_d=(np.asarray(alpha_d)).flatten()
+beta_d=(np.asarray(beta_d)).flatten()
+sum(alpha_d+beta_d*df['Rostrum'])/288
+lis1[2]=np.array(lis1[2].T)[0]
+delta1= np.abs(np.diff(np.array(df['Rostrum']))/np.sqrt(params[2]))
+delta2= np.abs(np.diff(np.array(df['Rostrum']))/np.sqrt(lis1[2]))
+'''待補Bootstrap'''
+B=1000
+import random
+np.random.seed(980716)
+def Boot(x,b):
+    package=[]
+    for i in range(b):
+        y_package = random.choices(x.tolist(), k=int((len(x)*0.25)))#.sample:without replacement.choices
+        avg_pacakage = np.mean(y_package)
+        package.append(avg_pacakage)
+    return package
+
+delat_B1=Boot(delta1, B)
+delat_B2=Boot(delta2, B)
+##Bootstrap result mean and CI
+#distance_o=alpha+beta*df['Rostrum']#(alpha+beta*df['Rostrum'],)
+print('Standard Distance of Discriminant Analysis:', np.mean(delta1))
+#pack_o=Boot(distance_o,B)
+print('Bootstrap result of Discriminant Analysis \n',np.mean(delat_B1))
+print('95% CI for Bootstrap result of Discriminant Analysis\n',st.norm.interval(alpha=0.975,loc=np.mean(delat_B1), scale=st.sem(delat_B1)))
+
+#Discrimix
+#distance_d=alpha_d+beta_d*df['Rostrum']#(alpha_d+beta_d*df['Rostrum'],)
+print('Standard Distance of Discrimix:', np.mean(delta2))
+#pack_d=Boot(distance_d,B)
+print('Bootstrap result of Discrimix\n',np.mean(delat_B2))
+print('95% CI for ootstrap result of Discrimix\n',st.norm.interval(alpha=0.975, loc=np.mean(delat_B2), scale=st.sem(delat_B2)))
+
+ 
+
+def Plot(data1,data2,title):
+    
+    count1, bins_count1 = np.histogram(data1, bins=10)
+      
+    # finding the PDF of the histogram using count values
+    pdf1 = count1 / sum(count1)
+    count2, bins_count2 = np.histogram(data2, bins=10)
+      
+    # finding the PDF of the histogram using count values
+    pdf2 = count2 / sum(count2)
+      
+    # using numpy np.cumsum to calculate the CDF
+    # We can also find using the PDF values by looping and adding
+    #cdf = np.cumsum(pdf)
+      
+    # plotting PDF and CDF
+    plt.plot(bins_count1[1:], pdf1, color="green", label="Origin")
+    plt.plot(bins_count2[1:], pdf2, color='orange',label="Discrimix")
+    plt.title(title)
+    plt.legend()
+    plt.show()
+
+Plot(delat_B1,delat_B2,"Bootstrap result of standard distance")
+
+
+
+'''4.23'''
+data=np.random.normal(size=1000)
+def Resample(X):
+    N=len(X)
+    V=N*np.random.uniform(size=N)+1
+    return np.array([X[math.floor(v)-1] for v in V])
+
+Y=Resample(data)
+# getting data of the histogram
+count, bins_count = np.histogram(Y, bins=10)
+  
+# finding the PDF of the histogram using count values
+pdf = count / sum(count)
+  
+# using numpy np.cumsum to calculate the CDF
+# We can also find using the PDF values by looping and adding
+cdf = np.cumsum(pdf)
+  
+# plotting PDF and CDF
+plt.plot(bins_count[1:], pdf, color="green", label="PDF")
+plt.plot(bins_count[1:], cdf, color='orange',label="CDF")
+plt.legend()
